@@ -11,7 +11,32 @@ from pathlib import Path
 import yt_dlp
 from flask import Flask, render_template, request, jsonify
 
-app = Flask(__name__)
+
+def resource_path(relative):
+    """Resolve a path to a bundled resource, working both in development and
+    inside a PyInstaller one-file build."""
+    base = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(base, relative)
+
+
+def get_ffmpeg_location():
+    """Return the directory containing a bundled ffmpeg binary, if available.
+
+    Falls back to None so yt-dlp uses ffmpeg from the system PATH."""
+    try:
+        import imageio_ffmpeg
+        return os.path.dirname(imageio_ffmpeg.get_ffmpeg_exe())
+    except Exception:
+        return None
+
+
+FFMPEG_LOCATION = get_ffmpeg_location()
+
+app = Flask(
+    __name__,
+    template_folder=resource_path('templates'),
+    static_folder=resource_path('static'),
+)
 
 # Disable Flask request logging for cleaner console
 log = logging.getLogger('werkzeug')
@@ -358,6 +383,9 @@ def _download_thread(session_id, url, download_type, video_format_id, audio_form
                 'quiet': False,
                 'no_warnings': False,
             }
+
+        if FFMPEG_LOCATION:
+            ydl_opts['ffmpeg_location'] = FFMPEG_LOCATION
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             ydl.download([url])
