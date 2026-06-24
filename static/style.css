@@ -46,19 +46,16 @@
 body {
   font-family: "Inter", "Segoe UI", sans-serif;
   background:
-    /* Savannah sun glow top-right */
     radial-gradient(
       circle at 100% 0%,
       rgba(244, 162, 54, 0.10),
       transparent 40%
     ),
-    /* Warm earth bottom-left */
     radial-gradient(
       circle at 0% 100%,
       rgba(192, 57, 43, 0.08),
       transparent 30%
     ),
-    /* Subtle green accent */
     radial-gradient(
       circle at 50% 50%,
       rgba(39, 174, 96, 0.04),
@@ -68,8 +65,6 @@ body {
   color: var(--text-primary);
   min-height: 100vh;
 }
-
-/* ==================== LAYOUT ==================== */
 
 .app-shell {
   display: grid;
@@ -90,8 +85,6 @@ body {
   box-shadow: var(--shadow);
   backdrop-filter: blur(8px);
 }
-
-/* ==================== BRAND ==================== */
 
 .brand-panel {
   display: flex;
@@ -145,8 +138,6 @@ body {
   font-style: italic;
 }
 
-/* ==================== NAVIGATION ==================== */
-
 .sidebar-nav {
   display: grid;
   gap: 10px;
@@ -163,10 +154,7 @@ body {
   font-size: 14px;
   font-weight: 700;
   cursor: pointer;
-  transition:
-    background 0.25s ease,
-    border 0.25s ease,
-    transform 0.2s ease;
+  transition: background 0.25s ease, border 0.25s ease, transform 0.2s ease;
 }
 
 .nav-item:hover {
@@ -180,8 +168,6 @@ body {
   border-color: rgba(244, 162, 54, 0.26);
   box-shadow: inset 0 0 20px rgba(244, 162, 54, 0.06);
 }
-
-/* ==================== WORKFLOW PANEL ==================== */
 
 .workflow-panel {
   background: rgba(255, 255, 255, 0.03);
@@ -215,8 +201,7 @@ body {
   margin-bottom: 10px;
 }
 
-/* ==================== SIDEBAR FOOTER ==================== */
-
+/* Sidebar Footer */
 .sidebar-footer {
   display: grid;
   gap: 10px;
@@ -245,7 +230,12 @@ body {
 .pattern-gold { background: var(--gold-african); }
 .pattern-green { background: var(--green-african); }
 
-/* ==================== MAIN CONTENT ==================== */
+.lang-badge {
+  font-size: 11px;
+  color: var(--gold-african-strong);
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
 
 .content {
   display: flex;
@@ -279,7 +269,7 @@ body {
   font-weight: 800;
 }
 
-.ethiopia-text {
+.africa-text {
   background: var(--gradient-sunset);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
@@ -295,8 +285,6 @@ body {
   font-size: 13px;
   border: 1px solid rgba(244, 162, 54, 0.20);
 }
-
-/* ==================== STATUS GRID ==================== */
 
 .status-grid {
   display: grid;
@@ -344,8 +332,6 @@ body {
   font-size: 14px;
 }
 
-/* ==================== CARDS ==================== */
-
 .card {
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid rgba(255, 193, 62, 0.10);
@@ -383,11 +369,14 @@ body {
   font-weight: 700;
 }
 
+.highlight-oromo {
+  color: var(--green-african);
+  font-weight: 700;
+}
+
 .card-body {
   padding: 24px 28px;
 }
-
-/* ==================== INPUT ==================== */
 
 .input-group {
   display: flex;
@@ -416,8 +405,6 @@ body {
   box-shadow: 0 0 0 4px rgba(244, 162, 54, 0.10);
 }
 
-/* ==================== BUTTONS ==================== */
-
 .btn {
   padding: 14px 24px;
   border: none;
@@ -426,9 +413,7 @@ body {
   cursor: pointer;
   position: relative;
   overflow: hidden;
-  transition:
-    transform 0.25s ease,
-    box-shadow 0.25s ease;
+  transition: transform 0.25s ease, box-shadow 0.25s ease;
   display: inline-flex;
   align-items: center;
   gap: 10px;
@@ -476,12 +461,8 @@ body {
 }
 
 @keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
+  to { transform: rotate(360deg); }
 }
-
-/* ==================== VIDEO INFO ==================== */
 
 .video-info {
   display: flex;
@@ -528,8 +509,6 @@ body {
   font-weight: 700;
 }
 
-/* ==================== RADIO GROUP ==================== */
-
 .radio-group {
   display: grid;
   gap: 16px;
@@ -552,9 +531,7 @@ body {
   background: rgba(244, 162, 54, 0.08);
 }
 
-.radio-label input[type="radio"] {
-  display: none;
-}
+.radio-label input[type="radio"] { display: none; }
 
 .radio-label input[type="radio"]:checked + .radio-custom {
   border-color: var(--gold-african-strong);
@@ -593,17 +570,8 @@ body {
   gap: 4px;
 }
 
-.radio-title {
-  font-size: 15px;
-  font-weight: 700;
-}
-
-.radio-desc {
-  font-size: 13px;
-  color: var(--text-secondary);
-}
-
-/* ==================== QUALITY SELECTION ==================== */
+.radio-title { font-size: 15px; font-weight: 700; }
+.radio-desc { font-size: 13px; color: var(--text-secondary); }
 
 .quality-grid {
   display: grid;
@@ -626,18 +594,12 @@ body {
   overflow-y: auto;
 }
 
-.format-list::-webkit-scrollbar {
-  width: 10px;
-}
-
+.format-list::-webkit-scrollbar { width: 10px; }
 .format-list::-webkit-scrollbar-thumb {
   background: rgba(244, 162, 54, 0.30);
   border-radius: 999px;
 }
-
-.format-list::-webkit-scrollbar-track {
-  background: transparent;
-}
+.format-list::-webkit-scrollbar-track { background: transparent; }
 
 .format-item {
   display: flex;
@@ -674,17 +636,8 @@ body {
   text-transform: uppercase;
 }
 
-.format-detail {
-  font-size: 14px;
-  font-weight: 600;
-}
-
-.format-note {
-  font-size: 13px;
-  color: var(--text-secondary);
-}
-
-/* ==================== PROGRESS ==================== */
+.format-detail { font-size: 14px; font-weight: 600; }
+.format-note { font-size: 13px; color: var(--text-secondary); }
 
 .progress-container {
   display: flex;
@@ -710,12 +663,7 @@ body {
   box-shadow: 0 0 20px rgba(244, 162, 54, 0.20);
 }
 
-.progress-text {
-  font-size: 14px;
-  color: var(--text-secondary);
-}
-
-/* ==================== PLAYLIST ==================== */
+.progress-text { font-size: 14px; color: var(--text-secondary); }
 
 .playlist-controls {
   display: flex;
@@ -768,13 +716,8 @@ body {
   transition: all 0.25s ease;
 }
 
-.playlist-video-item:hover {
-  background: rgba(244, 162, 54, 0.08);
-}
-
-.playlist-video-item.skipped {
-  opacity: 0.55;
-}
+.playlist-video-item:hover { background: rgba(244, 162, 54, 0.08); }
+.playlist-video-item.skipped { opacity: 0.55; }
 
 .playlist-video-checkbox input[type="checkbox"] {
   width: 20px;
@@ -810,45 +753,19 @@ body {
   margin-top: 2px;
 }
 
-/* ==================== UTILITY ==================== */
-
-.hidden {
-  display: none !important;
-}
-
-/* ==================== RESPONSIVE ==================== */
+.hidden { display: none !important; }
 
 @media (max-width: 1200px) {
-  .app-shell {
-    grid-template-columns: 1fr;
-  }
-  .content-grid {
-    grid-template-columns: 1fr;
-  }
-  .status-grid {
-    grid-template-columns: 1fr;
-  }
+  .app-shell { grid-template-columns: 1fr; }
+  .content-grid { grid-template-columns: 1fr; }
+  .status-grid { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 768px) {
-  .app-shell {
-    padding: 16px;
-    gap: 16px;
-  }
-  .sidebar {
-    padding: 20px;
-  }
-  .topbar,
-  .card {
-    border-radius: 20px;
-  }
-  .input-group {
-    flex-direction: column;
-  }
-  .btn {
-    width: 100%;
-  }
-  .quality-grid {
-    grid-template-columns: 1fr;
-  }
+  .app-shell { padding: 16px; gap: 16px; }
+  .sidebar { padding: 20px; }
+  .topbar, .card { border-radius: 20px; }
+  .input-group { flex-direction: column; }
+  .btn { width: 100%; }
+  .quality-grid { grid-template-columns: 1fr; }
 }

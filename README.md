@@ -118,18 +118,18 @@ YouTube-Downloader/
 3. Paste a YouTube URL → Fetch metadata → Choose quality → Download
 4. When you close the window, both Electron and Flask shut down cleanly
 
-## The African Flow 🇪🇹
+## The African Flow 🇪🇹 🇰🇪 🇿🇦
 
-Each step in the workflow is named in Swahili or Zulu, celebrating the spirit of Africa:
+Each step in the workflow is named in **Zulu**, **Swahili**, and **Afan Oromo** — celebrating the linguistic diversity of Africa:
 
-| Step | Name | Meaning |
-|------|------|---------|
-| 1 | **Sawubona** | "We see you" (Zulu) — Enter URL |
-| 2 | **Pamoja** | "Together" (Swahili) — Review details |
-| 3 | **Chagua** | "Choose" (Swahili) — Select type |
-| 4 | **Ubora** | "Quality" (Swahili) — Pick format |
-| 5 | **Umoja** | "Unity" (Swahili) — Select playlist items |
-| 6 | **Pakua** | "Download" (Swahili) — Start download |
+| Step | Zulu | Swahili | Afan Oromo | Meaning |
+|------|------|---------|------------|---------|
+| 1 | **Sawubona** | — | **Akkam** | "Hello / We see you" |
+| 2 | — | **Pamoja** | **Walta'i** | "Together" |
+| 3 | — | **Chagua** | **Filadhu** | "Choose" |
+| 4 | — | **Ubora** | **Qulqullina** | "Quality" |
+| 5 | — | **Umoja** | **Tokkummaa** | "Unity" |
+| 6 | — | **Pakua** | **Buufadhu** | "Download" |
 
 ## Usage
 
@@ -165,3 +165,4 @@ MIT
 
 *Built with ❤️ using Electron, Flask, and yt-dlp*
 *Design inspired by the colours of Ethiopia, Kenya, and the Pan-African spirit.*
+*Afan Oromo translations honour the Oromo people — the largest ethnic group in Ethiopia.*
