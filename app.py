@@ -870,7 +870,7 @@ def _run_aria2c_from_data(session_id, torrent_data, name):
 
 def _ensure_qr_code():
     """Generate Buy Me a Coffee QR code on first run if the file is missing."""
-    qr_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static', 'qr-coffee.png')
+    qr_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static', 'qr-coffee.webp')
     if not os.path.exists(qr_path):
         try:
             qr = qrcode.QRCode(
