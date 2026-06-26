@@ -8,6 +8,7 @@ let playlistData = [];
 let skippedIndices = new Set();
 let othersAnalyzedData = null;
 let queuePollInterval = null;
+const selectedSessions = new Set(); // session IDs checked via queue-item checkboxes
 
 // ══════════════════════════════════════════════════
 // DOM — YouTube
@@ -32,9 +33,9 @@ const playlistVideosContainer = document.getElementById("playlistVideos");
 // ══════════════════════════════════════════════════
 // DOM — Shared / other tabs
 // ══════════════════════════════════════════════════
-const downloadPathInput = document.getElementById("downloadPath");
-const savePathBtn = document.getElementById("savePathBtn");
-const browsePathBtn = document.getElementById("browsePathBtn");
+const partitionSelect = document.getElementById("partitionSelect");
+const savePartitionBtn = document.getElementById("savePartitionBtn");
+const afriwayPathPreview = document.getElementById("afriwayPathPreview");
 const addTorrentBtn = document.getElementById("addTorrentBtn");
 const torrentInput = document.getElementById("torrentInput");
 const analyzeOthersBtn = document.getElementById("analyzeOthersBtn");
@@ -44,61 +45,86 @@ const downloadOthersBtn = document.getElementById("downloadOthersBtn");
 // ══════════════════════════════════════════════════
 // Tabs
 // ══════════════════════════════════════════════════
+function switchToTab(tabId) {
+  document.querySelectorAll(".nav-item").forEach(b => b.classList.remove("active"));
+  document.querySelectorAll(".tab-pane").forEach(p => p.classList.remove("active"));
+  const btn = document.querySelector(`.nav-item[data-tab="${tabId}"]`);
+  if (btn) btn.classList.add("active");
+  const pane = document.getElementById(`pane-${tabId}`);
+  if (pane) pane.classList.add("active");
+}
+
 document.querySelectorAll(".nav-item[data-tab]").forEach(btn => {
-  btn.addEventListener("click", () => {
-    const tab = btn.dataset.tab;
-    document.querySelectorAll(".nav-item").forEach(b => b.classList.remove("active"));
-    document.querySelectorAll(".tab-pane").forEach(p => p.classList.remove("active"));
-    btn.classList.add("active");
-    document.getElementById(`pane-${tab}`).classList.add("active");
-  });
+  btn.addEventListener("click", () => switchToTab(btn.dataset.tab));
 });
 
+function isYouTubeUrl(url) {
+  return /(?:youtube\.com|youtu\.be)/i.test(url);
+}
+function isTorrentUrl(url) {
+  return url.startsWith("magnet:") || /\.torrent(\?|$)/i.test(url);
+}
+
 // ══════════════════════════════════════════════════
-// Download location
+// Download location — Afriway partition selector
 // ══════════════════════════════════════════════════
-async function loadDownloadPath() {
+async function loadDrives() {
   try {
-    const res = await fetch("/api/get-download-path");
+    const res = await fetch("/api/drives");
     const data = await res.json();
-    if (downloadPathInput) downloadPathInput.value = data.path || "";
+    if (!partitionSelect) return;
+    partitionSelect.innerHTML = "";
+    for (const d of data.drives) {
+      const opt = document.createElement("option");
+      opt.value = d.partition;
+      opt.textContent = d.is_system ? `${d.partition} (System)` : d.partition;
+      opt.dataset.path = d.afriway_path;
+      partitionSelect.appendChild(opt);
+    }
+    await loadPartition();
   } catch (_) {}
 }
 
-browsePathBtn.addEventListener("click", async () => {
-  browsePathBtn.disabled = true;
-  browsePathBtn.textContent = "⏳ Waiting...";
+async function loadPartition() {
   try {
-    const res = await fetch("/api/browse-folder");
+    const res = await fetch("/api/get-partition");
     const data = await res.json();
-    if (data.path) {
-      downloadPathInput.value = data.path;
+    if (partitionSelect && data.partition) {
+      partitionSelect.value = data.partition;
     }
+    if (afriwayPathPreview) afriwayPathPreview.textContent = data.path || "";
   } catch (_) {}
-  browsePathBtn.disabled = false;
-  browsePathBtn.textContent = "📂 Browse";
-});
+}
 
-savePathBtn.addEventListener("click", async () => {
-  const path = downloadPathInput.value.trim();
-  if (!path) return;
-  try {
-    const res = await fetch("/api/set-download-path", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ path })
-    });
-    const data = await res.json();
-    if (data.success) {
-      downloadPathInput.value = data.path;
-      showSuccess("Download location updated!");
-    } else {
-      showError(data.error || "Failed to set path");
+function updatePathPreview() {
+  const opt = partitionSelect && partitionSelect.selectedOptions[0];
+  if (opt && afriwayPathPreview) afriwayPathPreview.textContent = opt.dataset.path || "";
+}
+
+if (partitionSelect) partitionSelect.addEventListener("change", updatePathPreview);
+
+if (savePartitionBtn) {
+  savePartitionBtn.addEventListener("click", async () => {
+    const partition = partitionSelect && partitionSelect.value;
+    if (!partition) return;
+    try {
+      const res = await fetch("/api/set-partition", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ partition })
+      });
+      const data = await res.json();
+      if (data.success) {
+        if (afriwayPathPreview) afriwayPathPreview.textContent = data.path || "";
+        showSuccess("Download location updated!");
+      } else {
+        showError(data.error || "Failed to set partition");
+      }
+    } catch (e) {
+      showError(e.message);
     }
-  } catch (e) {
-    showError(e.message);
-  }
-});
+  });
+}
 
 // ══════════════════════════════════════════════════
 // Queue polling (every 2s)
@@ -164,34 +190,64 @@ function buildQueueItem(d) {
   const icons = { youtube: "▶️", torrent: "🔗", direct: "📦", video: "🎬" };
   const icon = icons[d.type] || "📥";
   const name = d.name || d.url || "Unknown";
+  const sid  = d.session_id;
   const typeBadge   = `<span class="type-badge type-badge--${d.type || "direct"}">${d.type || "file"}</span>`;
   const statusBadge = `<span class="status-badge status-badge--${d.status}">${d.status}</span>`;
   const progressPct = d.progress || 0;
-  const showBar     = d.status === "downloading";
+  const showBar     = d.status === "downloading" || d.status === "paused";
 
   let folderBtn = "";
   if (d.status === "completed" && d.filepath) {
+    // Use data-filepath (not an inline JS string) so Windows backslashes aren't eaten as escape sequences
     if (d.file_exists === false) {
       folderBtn = `<button type="button" class="btn-show-folder btn-show-folder--missing"
-        onclick="showInFolder('${escHtml(d.filepath)}')">⚠️ File moved?</button>`;
+        data-filepath="${escHtml(d.filepath)}" onclick="showInFolder(this.dataset.filepath)">⚠️ File moved?</button>
+        <button type="button" class="btn-action btn-action--retry" onclick="retryDownload('${sid}')">↩ Re-download</button>`;
     } else {
       folderBtn = `<button type="button" class="btn-show-folder"
-        onclick="showInFolder('${escHtml(d.filepath)}')">📂 Show in folder</button>`;
+        data-filepath="${escHtml(d.filepath)}" onclick="showInFolder(this.dataset.filepath)">📂 Show in folder</button>`;
     }
   }
 
+  let pauseBtn = "";
+  if (d.status === "downloading") {
+    pauseBtn = `<button type="button" class="btn-action btn-action--pause" onclick="pauseDownload('${sid}')">⏸ Pause</button>`;
+  } else if (d.status === "paused") {
+    pauseBtn = `<button type="button" class="btn-action btn-action--resume" onclick="resumeDownload('${sid}')">▶ Resume</button>`;
+  } else if (d.status === "error" || d.status === "interrupted") {
+    pauseBtn = `<button type="button" class="btn-action btn-action--retry" onclick="retryDownload('${sid}')">↩ Retry</button>`;
+  }
+
+  const deleteBtn = (d.status === "completed" && d.file_exists !== false)
+    ? `<button type="button" class="btn-action btn-action--delete-file"
+         onclick="removeSession('${sid}', true)" title="Delete file from disk">🗑 Delete file</button>`
+    : "";
+
+  const copyBtn = d.url
+    ? `<button type="button" class="btn-action btn-action--copy"
+         data-url="${escHtml(d.url)}" onclick="copyLink(this.dataset.url)" title="Copy source URL">📋 Copy link</button>`
+    : "";
+
   return `
     <div class="queue-item">
+      <input type="checkbox" class="queue-item-check" data-sid="${sid}"
+        onchange="toggleSessionSelect('${sid}', this.checked)"
+        ${selectedSessions.has(sid) ? "checked" : ""}>
       <div class="queue-item-icon">${icon}</div>
       <div class="queue-item-info">
         <div class="queue-item-name" title="${escHtml(name)}">${escHtml(name)}</div>
-        <div class="queue-item-meta">${typeBadge} ${statusBadge}${folderBtn}</div>
+        <div class="queue-item-meta">${typeBadge} ${statusBadge}${pauseBtn}${folderBtn}${copyBtn}</div>
         ${showBar ? `
           <div class="queue-item-progress-bar">
             <div class="queue-item-progress-fill" style="width:${progressPct}%"></div>
           </div>
         ` : ""}
         <div class="queue-item-msg">${escHtml(d.message || "")}</div>
+        <div class="queue-item-remove-row">
+          <button type="button" class="btn-action btn-action--remove"
+            onclick="removeSession('${sid}', false)" title="Remove from list">✕ Remove</button>
+          ${deleteBtn}
+        </div>
       </div>
     </div>
   `;
@@ -219,17 +275,117 @@ async function showInFolder(filepath) {
 }
 
 function openMissingModal(filepath) {
-  const modal = document.getElementById("missingFilesModal");
-  document.getElementById("missingFilesBody").innerHTML = `
-    <p>The file can no longer be found at its saved location:</p>
-    <code class="missing-path">${escHtml(filepath)}</code>
-    <p>It may have been moved, renamed, or deleted.</p>
-  `;
-  modal.classList.remove("hidden");
+  swalDark.fire({
+    icon: "warning",
+    title: "File Not Found",
+    html: `
+      <p style="margin:0 0 12px;color:#d4c4b0;font-size:14px">The file can no longer be found at its saved location:</p>
+      <code style="display:block;background:rgba(255,255,255,0.05);border:1px solid rgba(212,175,55,0.22);
+        border-radius:8px;padding:10px 14px;font-size:12px;color:#D4AF37;word-break:break-all;
+        text-align:left;font-family:Consolas,Monaco,monospace">${escHtml(filepath)}</code>
+      <p style="margin:12px 0 0;color:#d4c4b0;font-size:14px">It may have been moved, renamed, or deleted.</p>
+    `,
+  });
 }
 
-function closeMissingModal() {
-  document.getElementById("missingFilesModal").classList.add("hidden");
+// ══════════════════════════════════════════════════
+// Pause / Resume controls
+// ══════════════════════════════════════════════════
+function toggleSessionSelect(sid, checked) {
+  if (checked) selectedSessions.add(sid);
+  else selectedSessions.delete(sid);
+}
+
+function toggleSelectAll(queueId, checked) {
+  const container = document.getElementById(queueId);
+  if (!container) return;
+  container.querySelectorAll(".queue-item-check").forEach(cb => {
+    cb.checked = checked;
+    if (checked) selectedSessions.add(cb.dataset.sid);
+    else selectedSessions.delete(cb.dataset.sid);
+  });
+}
+
+async function pauseDownload(sid) {
+  try {
+    await fetch(`/api/pause/${sid}`, { method: "POST" });
+    refreshAllQueues();
+  } catch (e) { showError(e.message); }
+}
+
+async function resumeDownload(sid) {
+  try {
+    const res = await fetch(`/api/resume/${sid}`, { method: "POST" });
+    if (!res.ok) { const d = await res.json(); showError(d.error || "Could not resume"); }
+    refreshAllQueues();
+  } catch (e) { showError(e.message); }
+}
+
+async function pauseSelected(queueId) {
+  const container = document.getElementById(queueId);
+  if (!container) return;
+  const ids = [...container.querySelectorAll(".queue-item-check:checked")].map(cb => cb.dataset.sid);
+  for (const sid of ids) {
+    try { await fetch(`/api/pause/${sid}`, { method: "POST" }); } catch (_) {}
+  }
+  refreshAllQueues();
+}
+
+async function retryDownload(sid) {
+  try {
+    const res = await fetch(`/api/retry/${sid}`, { method: "POST" });
+    if (!res.ok) { const d = await res.json(); showError(d.error || "Could not retry"); return; }
+    refreshAllQueues();
+  } catch (e) { showError(e.message); }
+}
+
+async function copyLink(url) {
+  try {
+    await navigator.clipboard.writeText(url);
+    swalToast.fire({ icon: "success", title: "Link copied!" });
+  } catch (e) {
+    showError("Could not copy to clipboard: " + e.message);
+  }
+}
+
+async function removeSession(sid, deleteFile) {
+  const result = await swalDark.fire({
+    icon: "warning",
+    title: deleteFile ? "Delete file?" : "Remove download?",
+    text: deleteFile
+      ? "This will permanently delete the file from disk and remove it from the list."
+      : "This will remove the download from the list.",
+    showCancelButton: true,
+    confirmButtonText: deleteFile ? "🗑 Delete" : "✕ Remove",
+    cancelButtonText: "Cancel",
+  });
+  if (!result.isConfirmed) return;
+  try {
+    const res = await fetch(`/api/remove/${sid}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ delete_file: deleteFile })
+    });
+    const data = await res.json();
+    if (!res.ok) { showError(data.error || "Could not remove"); return; }
+    if (deleteFile) showSuccess(data.deleted ? "File deleted and removed from list." : "Removed from list (file was already gone).");
+    else showSuccess("Removed from list.");
+    selectedSessions.delete(sid);
+    refreshAllQueues();
+  } catch (e) { showError(e.message); }
+}
+
+async function resumeSelected(queueId) {
+  const container = document.getElementById(queueId);
+  if (!container) return;
+  const ids = [...container.querySelectorAll(".queue-item-check:checked")].map(cb => cb.dataset.sid);
+  for (const sid of ids) {
+    try {
+      const res = await fetch(`/api/resume/${sid}`, { method: "POST" });
+      if (!res.ok) { const d = await res.json(); showError(d.error || "Could not resume"); }
+    } catch (_) {}
+  }
+  refreshAllQueues();
 }
 
 function escHtml(str) {
@@ -300,7 +456,25 @@ async function uploadTorrentFile(file) {
 
 async function startTorrentDownload() {
   const url = torrentInput.value.trim();
-  if (!url) { showError("Please enter a magnet link or .torrent URL"); return; }
+  if (!url) { showError("Please enter a URL"); return; }
+
+  if (isYouTubeUrl(url)) {
+    switchToTab("youtube");
+    urlInput.value = url;
+    torrentInput.value = "";
+    swalToast.fire({ icon: "info", title: "Moved to YouTube tab" });
+    fetchVideoInfo();
+    return;
+  }
+  if (!isTorrentUrl(url)) {
+    switchToTab("others");
+    othersInput.value = url;
+    torrentInput.value = "";
+    swalToast.fire({ icon: "info", title: "Moved to Others tab" });
+    analyzeOthersUrl();
+    return;
+  }
+
   setLoading(addTorrentBtn, true);
   try {
     const res = await fetch("/api/download-torrent", {
@@ -342,6 +516,24 @@ downloadOthersBtn.addEventListener("click", startOthersDownload);
 async function analyzeOthersUrl() {
   const url = othersInput.value.trim();
   if (!url) { showError("Please enter a URL"); return; }
+
+  if (isYouTubeUrl(url)) {
+    switchToTab("youtube");
+    urlInput.value = url;
+    othersInput.value = "";
+    swalToast.fire({ icon: "info", title: "Moved to YouTube tab" });
+    fetchVideoInfo();
+    return;
+  }
+  if (isTorrentUrl(url)) {
+    switchToTab("torrent");
+    torrentInput.value = url;
+    othersInput.value = "";
+    swalToast.fire({ icon: "info", title: "Moved to Torrent tab" });
+    startTorrentDownload();
+    return;
+  }
+
   setLoading(analyzeOthersBtn, true);
   const section = document.getElementById("othersInfoSection");
   const body = document.getElementById("othersInfoBody");
@@ -410,7 +602,24 @@ downloadBtn.addEventListener("click", startDownload);
 
 async function fetchVideoInfo() {
   const url = urlInput.value.trim();
-  if (!url) { showError("Please enter a YouTube URL"); return; }
+  if (!url) { showError("Please enter a URL"); return; }
+
+  if (!isYouTubeUrl(url)) {
+    if (isTorrentUrl(url)) {
+      switchToTab("torrent");
+      torrentInput.value = url;
+      urlInput.value = "";
+      swalToast.fire({ icon: "info", title: "Moved to Torrent tab" });
+      startTorrentDownload();
+    } else {
+      switchToTab("others");
+      othersInput.value = url;
+      urlInput.value = "";
+      swalToast.fire({ icon: "info", title: "Moved to Others tab" });
+      analyzeOthersUrl();
+    }
+    return;
+  }
 
   setLoading(fetchBtn, true);
   skippedIndices.clear();
@@ -723,12 +932,36 @@ function hideAllSections() {
   downloadBtn.disabled = false;
 }
 
-function showError(message)   { alert("❌ Error: " + message); }
-function showSuccess(message) { alert("✅ " + message); }
+// ══════════════════════════════════════════════════
+// SweetAlert2 — themed helpers
+// ══════════════════════════════════════════════════
+const swalDark = Swal.mixin({
+  background: "#1a1c23",
+  color: "#f5ebe0",
+  confirmButtonColor: "#D4AF37",
+  cancelButtonColor: "rgba(255,255,255,0.12)",
+  customClass: { popup: "swal-afriway" }
+});
+
+const swalToast = swalDark.mixin({
+  toast: true,
+  position: "top-end",
+  showConfirmButton: false,
+  timer: 3000,
+  timerProgressBar: true,
+});
+
+function showError(message) {
+  swalDark.fire({ icon: "error", title: "Error", text: message });
+}
+
+function showSuccess(message) {
+  swalToast.fire({ icon: "success", title: message });
+}
 
 // ══════════════════════════════════════════════════
 // Init — restore queue state immediately on page load / refresh
 // ══════════════════════════════════════════════════
-loadDownloadPath();
+loadDrives();
 refreshAllQueues();   // show persisted downloads right away without waiting 2s
 startQueuePolling();

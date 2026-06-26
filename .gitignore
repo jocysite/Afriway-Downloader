@@ -9,10 +9,12 @@ env/
 .venv/
 
 # Generated at runtime — not committed
-static/qr-coffee.png
-static/qr-coffee.webp
+static/qr-coffee*.png
+static/qr-coffee*.webp
 downloads.json
 aria2c.exe
+static/aria2*/
+*.torrent
 
 # Node / Electron
 node_modules/

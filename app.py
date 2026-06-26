@@ -34,9 +34,16 @@ def _find_aria2c():
         return on_path
 
     # 2. Next to app.py (user dropped it in the project folder)
-    here = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'aria2c.exe')
+    project_dir = os.path.dirname(os.path.abspath(__file__))
+    here = os.path.join(project_dir, 'aria2c.exe')
     if os.path.isfile(here):
         return here
+
+    # 2b. Inside any direct subdirectory (e.g. static/aria2-1.37.0-win-64bit-build1/)
+    import glob as _glob
+    for found in _glob.glob(os.path.join(project_dir, '**', 'aria2c.exe'), recursive=True):
+        if os.path.isfile(found):
+            return found
 
     # 3. Common install locations (Windows)
     candidates = [
@@ -65,8 +72,19 @@ log.setLevel(logging.ERROR)
 # Store download sessions
 download_sessions = {}
 
-# Configurable download path (None = use system Downloads folder)
-_download_path = None
+# In-memory handles for pause/resume — NOT persisted (rebuilt when threads start)
+_pause_events = {}   # session_id -> threading.Event (set=running, clear=paused)
+_running_procs = {}  # session_id -> subprocess.Popen (aria2c handles)
+
+# Selected partition for Afriway folder (None = auto-detect system drive)
+_selected_partition = None
+
+# Afriway folder structure — mirrors Xender-style auto-organised downloads
+AFRIWAY_SUBFOLDERS = ['Images', 'App', 'Folder', 'Videos', 'Other']
+_IMAGE_EXTS = {'.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.bmp', '.ico', '.tiff', '.tif'}
+_APP_EXTS   = {'.apk', '.exe', '.msi', '.dmg', '.deb', '.rpm', '.pkg', '.appimage'}
+_VIDEO_EXTS = {'.mp4', '.mkv', '.avi', '.mov', '.wmv', '.flv', '.webm', '.m4v',
+               '.mpg', '.mpeg', '.mp3', '.m4a', '.flac', '.wav', '.aac', '.ogg', '.opus', '.wma'}
 
 
 def _get_app_data_dir():
@@ -106,11 +124,56 @@ def _load_sessions():
         print(f'⚠️  Could not restore sessions: {exc}')
 
 
-def _get_download_path():
-    global _download_path
-    if _download_path and os.path.isdir(_download_path):
-        return _download_path
-    return get_downloads_folder()
+def _get_available_drives():
+    """Return available drive letters on Windows, or ['/'] on Unix."""
+    if os.name == 'nt':
+        import ctypes
+        drives = []
+        bitmask = ctypes.windll.kernel32.GetLogicalDrives()
+        for letter in 'ABCDEFGHIJKLMNOPQRSTUVWXYZ':
+            if bitmask & 1:
+                drives.append(f'{letter}:')
+            bitmask >>= 1
+        return drives
+    return ['/']
+
+
+def _get_afriway_base():
+    """Return the Afriway root folder path for the selected partition."""
+    partition = _selected_partition
+    if not partition:
+        if os.name == 'nt':
+            partition = os.environ.get('SystemDrive', 'C:').rstrip('\\')
+        else:
+            return str(Path.home() / 'Afriway')
+    if os.name == 'nt':
+        sys_drive = os.environ.get('SystemDrive', 'C:').upper().rstrip('\\')
+        if partition.upper().rstrip('\\') == sys_drive:
+            # Use the user's actual Downloads folder (e.g. C:\Users\YosefM\Downloads\Afriway)
+            return os.path.join(get_downloads_folder(), 'Afriway')
+        root = partition.rstrip('\\') + '\\'
+        return os.path.join(root, 'Afriway')
+    return os.path.join(partition, 'Afriway')
+
+
+def _ensure_afriway_dirs():
+    """Create Afriway folder + all subfolders if missing. Returns the base path."""
+    base = _get_afriway_base()
+    for sub in AFRIWAY_SUBFOLDERS:
+        os.makedirs(os.path.join(base, sub), exist_ok=True)
+    return base
+
+
+def _get_type_folder(filename):
+    """Map a filename's extension to the correct Afriway subfolder name."""
+    ext = os.path.splitext(filename)[1].lower()
+    if ext in _IMAGE_EXTS:
+        return 'Images'
+    if ext in _APP_EXTS:
+        return 'App'
+    if ext in _VIDEO_EXTS:
+        return 'Videos'
+    return 'Other'
 
 
 def detect_url_type(url):
@@ -355,6 +418,15 @@ def download():
             'url': url,
             'filepath': '',
             'save_dir': '',
+            '_meta': {
+                'type': 'youtube',
+                'url': url,
+                'download_type': download_type,
+                'video_format_id': video_format_id,
+                'audio_format_id': audio_format_id,
+                'is_playlist': is_playlist,
+                'skip_indices': skip_indices,
+            },
         }
         _save_sessions()
 
@@ -394,24 +466,31 @@ def download_status(session_id):
     return jsonify(session)
 
 
-def _download_thread(session_id, url, download_type, video_format_id, audio_format_id, is_playlist, skip_indices):
+def _download_thread(session_id, url, download_type, video_format_id, audio_format_id, is_playlist, skip_indices, save_dir=None):
     """Background thread for downloading with smart quality fallback"""
+    evt = threading.Event()
+    evt.set()
+    _pause_events[session_id] = evt
     try:
-        # Use configured or system Downloads folder
-        download_path = _get_download_path()
-
-        # Create YouTube Downloads subfolder
-        youtube_folder = os.path.join(download_path, 'YouTube Downloads')
-        os.makedirs(youtube_folder, exist_ok=True)
-
-        if is_playlist:
-            output_template = os.path.join(
-                youtube_folder,
-                '%(playlist)s',
-                '%(playlist_index)s - %(title)s.%(ext)s'
-            )
+        # Reuse the previous save_dir if valid (so yt-dlp resumes from .part files)
+        if save_dir and os.path.isdir(save_dir):
+            dest_folder = save_dir
+            if is_playlist:
+                output_template = os.path.join(dest_folder, '%(playlist)s', '%(playlist_index)s - %(title)s.%(ext)s')
+            else:
+                output_template = os.path.join(dest_folder, '%(title)s.%(ext)s')
         else:
-            output_template = os.path.join(youtube_folder, '%(title)s.%(ext)s')
+            afriway_base = _ensure_afriway_dirs()
+            if is_playlist:
+                dest_folder = os.path.join(afriway_base, 'Folder')
+                output_template = os.path.join(
+                    dest_folder,
+                    '%(playlist)s',
+                    '%(playlist_index)s - %(title)s.%(ext)s'
+                )
+            else:
+                dest_folder = os.path.join(afriway_base, 'Videos')
+                output_template = os.path.join(dest_folder, '%(title)s.%(ext)s')
 
         last_video_percent = -1
         last_audio_percent = -1
@@ -421,6 +500,8 @@ def _download_thread(session_id, url, download_type, video_format_id, audio_form
         def progress_hook(d):
             """Handle download progress with clean console output"""
             nonlocal last_video_percent, last_audio_percent, current_stage, current_playlist_index
+            if not evt.is_set():
+                raise Exception('paused')  # aborts yt-dlp; .part file preserved for resume
 
             if d['status'] == 'downloading':
                 try:
@@ -566,48 +647,74 @@ def _download_thread(session_id, url, download_type, video_format_id, audio_form
             ydl.download([url])
 
         print(f"\n✅ Download completed!")
-        print(f"📁 Saved to: {youtube_folder}\n")
+        print(f"📁 Saved to: {dest_folder}\n")
 
-        download_sessions[session_id]['save_dir'] = youtube_folder
+        download_sessions[session_id]['save_dir'] = dest_folder
         if captured_filepath and not is_playlist:
             download_sessions[session_id]['filepath'] = captured_filepath[-1]
         else:
-            download_sessions[session_id]['filepath'] = youtube_folder
+            download_sessions[session_id]['filepath'] = dest_folder
         download_sessions[session_id]['status'] = 'completed'
         download_sessions[session_id]['progress'] = 100
-        download_sessions[session_id]['message'] = f'Download completed! Saved to: {youtube_folder}'
+        download_sessions[session_id]['message'] = f'Download completed! Saved to: {dest_folder}'
         _save_sessions()
 
     except yt_dlp.utils.DownloadError as e:
-        print(f"\n❌ Download error: {str(e)}\n")
-        download_sessions[session_id]['status'] = 'error'
-        download_sessions[session_id]['message'] = f'Download error: {str(e)}'
-        _save_sessions()
+        if download_sessions.get(session_id, {}).get('status') != 'paused':
+            print(f"\n❌ Download error: {str(e)}\n")
+            download_sessions[session_id]['status'] = 'error'
+            download_sessions[session_id]['message'] = f'Download error: {str(e)}'
+            _save_sessions()
     except (OSError, KeyError) as e:
-        print(f"\n❌ Error: {str(e)}\n")
-        download_sessions[session_id]['status'] = 'error'
-        download_sessions[session_id]['message'] = f'Error: {str(e)}'
-        _save_sessions()
+        if download_sessions.get(session_id, {}).get('status') != 'paused':
+            print(f"\n❌ Error: {str(e)}\n")
+            download_sessions[session_id]['status'] = 'error'
+            download_sessions[session_id]['message'] = f'Error: {str(e)}'
+            _save_sessions()
+    except Exception:
+        # Catches the 'paused' exception raised in progress_hook; real errors go to DownloadError/OSError above
+        if download_sessions.get(session_id, {}).get('status') != 'paused':
+            download_sessions[session_id]['status'] = 'error'
+            download_sessions[session_id]['message'] = 'Unexpected error'
+            _save_sessions()
+    finally:
+        _pause_events.pop(session_id, None)
 
 
-@app.route('/api/get-download-path', methods=['GET'])
-def api_get_download_path():
-    return jsonify({'path': _get_download_path()})
+@app.route('/api/drives', methods=['GET'])
+def api_get_drives():
+    """Return available drive letters with their Afriway paths."""
+    drives = _get_available_drives()
+    sys_drive = (os.environ.get('SystemDrive', 'C:') if os.name == 'nt' else '/').upper().rstrip('\\')
+    result = []
+    for d in drives:
+        is_sys = d.upper().rstrip('\\') == sys_drive
+        if os.name == 'nt':
+            path = os.path.join(get_downloads_folder(), 'Afriway') if is_sys else f'{d}\\Afriway'
+        else:
+            path = f'{d}/Afriway'
+        result.append({'partition': d, 'is_system': is_sys, 'afriway_path': path})
+    return jsonify({'drives': result})
 
 
-@app.route('/api/set-download-path', methods=['POST'])
-def api_set_download_path():
-    global _download_path
+@app.route('/api/get-partition', methods=['GET'])
+def api_get_partition():
+    partition = _selected_partition
+    if not partition and os.name == 'nt':
+        partition = os.environ.get('SystemDrive', 'C:').rstrip('\\')
+    return jsonify({'partition': partition, 'path': _get_afriway_base()})
+
+
+@app.route('/api/set-partition', methods=['POST'])
+def api_set_partition():
+    global _selected_partition
     data = request.json
-    path = (data.get('path') or '').strip()
-    if not path:
-        return jsonify({'error': 'Path is required'}), 400
-    try:
-        os.makedirs(path, exist_ok=True)
-        _download_path = path
-        return jsonify({'success': True, 'path': path})
-    except OSError as e:
-        return jsonify({'error': str(e)}), 400
+    partition = (data.get('partition') or '').strip()
+    if not partition:
+        return jsonify({'error': 'Partition required'}), 400
+    _selected_partition = partition
+    base = _ensure_afriway_dirs()
+    return jsonify({'success': True, 'path': base})
 
 
 @app.route('/api/analyze-url', methods=['POST'])
@@ -677,6 +784,7 @@ def api_download_direct():
             'url': url,
             'filepath': '',
             'save_dir': '',
+            '_meta': {'type': 'direct', 'url': url, 'filename': filename},
         }
         _save_sessions()
         thread = threading.Thread(
@@ -690,17 +798,38 @@ def api_download_direct():
         return jsonify({'error': str(e)}), 500
 
 
-def _download_direct_thread(session_id, url, filename):
+def _download_direct_thread(session_id, url, filename, resume_dir=None):
+    evt = threading.Event()
+    evt.set()
+    _pause_events[session_id] = evt
     try:
-        save_dir = _get_download_path()
+        if resume_dir and os.path.isdir(resume_dir):
+            save_dir = resume_dir
+        else:
+            afriway_base = _ensure_afriway_dirs()
+            save_dir = os.path.join(afriway_base, _get_type_folder(filename))
         dest = os.path.join(save_dir, filename)
-        r = http_req.get(url, stream=True, timeout=30)
-        r.raise_for_status()
-        total = int(r.headers.get('Content-Length', 0))
-        downloaded = 0
-        with open(dest, 'wb') as f:
+
+        # Resume from partial file via HTTP Range if the server supports it
+        resume_pos = os.path.getsize(dest) if os.path.exists(dest) else 0
+        req_headers = {'Range': f'bytes={resume_pos}-'} if resume_pos > 0 else {}
+        r = http_req.get(url, stream=True, timeout=30, headers=req_headers)
+
+        if resume_pos > 0 and r.status_code == 206:
+            write_mode = 'ab'
+            downloaded = resume_pos
+            content_len = int(r.headers.get('Content-Length', 0))
+            total = resume_pos + content_len if content_len else 0
+        else:
+            r.raise_for_status()
+            write_mode = 'wb'
+            downloaded = 0
+            total = int(r.headers.get('Content-Length', 0))
+
+        with open(dest, write_mode) as f:
             for chunk in r.iter_content(chunk_size=65536):
                 if chunk:
+                    _pause_events.get(session_id, evt).wait()
                     f.write(chunk)
                     downloaded += len(chunk)
                     if total:
@@ -715,10 +844,13 @@ def _download_direct_thread(session_id, url, filename):
         _save_sessions()
         print(f'✅ Direct download complete: {dest}')
     except Exception as e:
-        download_sessions[session_id]['status'] = 'error'
-        download_sessions[session_id]['message'] = str(e)
-        _save_sessions()
+        if download_sessions.get(session_id, {}).get('status') != 'paused':
+            download_sessions[session_id]['status'] = 'error'
+            download_sessions[session_id]['message'] = str(e)
+            _save_sessions()
         print(f'❌ Direct download error: {e}')
+    finally:
+        _pause_events.pop(session_id, None)
 
 
 _ARIA2C_INSTALL_HINT = (
@@ -733,9 +865,10 @@ _ARIA2C_INSTALL_HINT = (
 
 def _run_aria2c(session_id, args):
     """Run aria2c with the given extra args, updating session progress from stdout."""
+    afriway_base = _ensure_afriway_dirs()
     cmd = [
         _ARIA2C_PATH,
-        f'--dir={_get_download_path()}',
+        f'--dir={os.path.join(afriway_base, "Other")}',
         '--seed-time=0',        # stop seeding immediately after completion
         '--summary-interval=1', # print summary every second
         '--console-log-level=notice',
@@ -749,6 +882,7 @@ def _run_aria2c(session_id, args):
             text=True,
             bufsize=1,
         )
+        _running_procs[session_id] = proc
         for raw in proc.stdout:
             line = raw.strip()
             if not line:
@@ -767,7 +901,7 @@ def _run_aria2c(session_id, args):
                 download_sessions[session_id]['message'] = line[:120]
         proc.wait()
         if proc.returncode == 0:
-            save_dir = _get_download_path()
+            save_dir = os.path.join(_get_afriway_base(), 'Other')
             download_sessions[session_id]['filepath'] = save_dir
             download_sessions[session_id]['save_dir'] = save_dir
             download_sessions[session_id]['status'] = 'completed'
@@ -775,16 +909,21 @@ def _run_aria2c(session_id, args):
             download_sessions[session_id]['message'] = 'Download complete!'
             _save_sessions()
             print(f'✅ aria2c complete for session {session_id}')
+        elif download_sessions.get(session_id, {}).get('status') == 'paused':
+            pass  # process was terminated intentionally; keep paused status
         else:
             download_sessions[session_id]['status'] = 'error'
             download_sessions[session_id]['message'] = f'aria2c exited with code {proc.returncode}'
             _save_sessions()
             print(f'❌ aria2c error (code {proc.returncode}) for session {session_id}')
     except Exception as e:
-        download_sessions[session_id]['status'] = 'error'
-        download_sessions[session_id]['message'] = str(e)
-        _save_sessions()
+        if download_sessions.get(session_id, {}).get('status') != 'paused':
+            download_sessions[session_id]['status'] = 'error'
+            download_sessions[session_id]['message'] = str(e)
+            _save_sessions()
         print(f'❌ Torrent error: {e}')
+    finally:
+        _running_procs.pop(session_id, None)
 
 
 @app.route('/api/download-torrent', methods=['POST'])
@@ -807,6 +946,7 @@ def api_download_torrent():
             'url': url,
             'filepath': '',
             'save_dir': '',
+            '_meta': {'type': 'aria2c', 'args': [url]},
         }
         _save_sessions()
         thread = threading.Thread(target=_run_aria2c, args=(session_id, [url]))
@@ -835,6 +975,7 @@ def api_download_video_best():
             'url': url,
             'filepath': '',
             'save_dir': '',
+            '_meta': {'type': 'video', 'url': url},
         }
         _save_sessions()
         thread = threading.Thread(
@@ -848,7 +989,11 @@ def api_download_video_best():
         return jsonify({'error': str(e)}), 500
 
 
-def _download_video_best_thread(session_id, url):
+def _download_video_best_thread(session_id, url, save_dir=None):
+    evt = threading.Event()
+    evt.set()
+    _pause_events[session_id] = evt
+
     captured_filepath = []
 
     def postprocessor_hook(d):
@@ -858,6 +1003,8 @@ def _download_video_best_thread(session_id, url):
                 captured_filepath.append(fp)
 
     def progress_hook(d):
+        if not evt.is_set():
+            raise Exception('paused')  # aborts yt-dlp; .part file preserved for resume
         if d['status'] == 'downloading':
             try:
                 pct = float(d.get('_percent_str', '0%').strip().replace('%', ''))
@@ -872,7 +1019,11 @@ def _download_video_best_thread(session_id, url):
             download_sessions[session_id]['message'] = 'Processing...'
 
     try:
-        save_path = _get_download_path()
+        if save_dir and os.path.isdir(save_dir):
+            save_path = save_dir
+        else:
+            afriway_base = _ensure_afriway_dirs()
+            save_path = os.path.join(afriway_base, 'Videos')
         ydl_opts = {
             'format': 'bestvideo+bestaudio/best',
             'merge_output_format': 'mp4',
@@ -897,10 +1048,13 @@ def _download_video_best_thread(session_id, url):
         _save_sessions()
         print(f'✅ Video download complete: {title}')
     except Exception as e:
-        download_sessions[session_id]['status'] = 'error'
-        download_sessions[session_id]['message'] = str(e)
-        _save_sessions()
-        print(f'❌ Video download error: {e}')
+        if download_sessions.get(session_id, {}).get('status') != 'paused':
+            download_sessions[session_id]['status'] = 'error'
+            download_sessions[session_id]['message'] = str(e)
+            _save_sessions()
+            print(f'❌ Video download error: {e}')
+    finally:
+        _pause_events.pop(session_id, None)
 
 
 @app.route('/api/downloads', methods=['GET'])
@@ -924,29 +1078,6 @@ def api_downloads():
     sessions.reverse()
     return jsonify(sessions)
 
-
-@app.route('/api/browse-folder', methods=['GET'])
-def api_browse_folder():
-    """Open a native OS folder-picker dialog via tkinter in a subprocess and return the chosen path."""
-    script = (
-        "import tkinter as tk; from tkinter import filedialog; "
-        "root = tk.Tk(); root.withdraw(); root.wm_attributes('-topmost', 1); "
-        "path = filedialog.askdirectory(title='Select Download Folder'); "
-        "print(path or '', end='')"
-    )
-    try:
-        result = subprocess.run(
-            [sys.executable, '-c', script],
-            capture_output=True, text=True, timeout=120
-        )
-        path = result.stdout.strip()
-        if path:
-            return jsonify({'path': path})
-        return jsonify({'cancelled': True})
-    except subprocess.TimeoutExpired:
-        return jsonify({'cancelled': True})
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
 
 
 @app.route('/api/show-in-folder', methods=['POST'])
@@ -980,6 +1111,187 @@ def api_show_in_folder():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/pause/<session_id>', methods=['POST'])
+def api_pause(session_id):
+    """Pause an active download."""
+    session = download_sessions.get(session_id)
+    if not session:
+        return jsonify({'error': 'Session not found'}), 404
+    if session.get('status') != 'downloading':
+        return jsonify({'success': True, 'status': session.get('status')}), 200
+
+    # Pause yt-dlp / direct downloads (thread blocks on event.wait())
+    evt = _pause_events.get(session_id)
+    if evt:
+        evt.clear()
+
+    # Terminate aria2c process (it writes a .aria2 control file for later resume)
+    proc = _running_procs.get(session_id)
+    if proc and proc.poll() is None:
+        try:
+            proc.terminate()
+        except Exception:
+            pass
+
+    session['status'] = 'paused'
+    session['message'] = 'Paused'
+    _save_sessions()
+    return jsonify({'success': True})
+
+
+@app.route('/api/resume/<session_id>', methods=['POST'])
+def api_resume(session_id):
+    """Resume a paused download."""
+    session = download_sessions.get(session_id)
+    if not session:
+        return jsonify({'error': 'Session not found'}), 404
+    if session.get('status') != 'paused':
+        return jsonify({'success': True, 'status': session.get('status')}), 200
+
+    session['status'] = 'downloading'
+    session['message'] = 'Resuming...'
+
+    evt = _pause_events.get(session_id)
+    if evt:
+        # Thread is still alive (yt-dlp or direct); just unblock it
+        evt.set()
+    else:
+        # Thread exited (aria2c was terminated, or server restarted); restart download
+        meta = session.get('_meta', {})
+        dtype = meta.get('type', '')
+        t = None
+        if dtype == 'youtube':
+            t = threading.Thread(target=_download_thread, args=(
+                session_id, meta['url'], meta['download_type'],
+                meta.get('video_format_id'), meta.get('audio_format_id'),
+                meta.get('is_playlist', False), meta.get('skip_indices', []),
+                session.get('save_dir')
+            ))
+        elif dtype == 'direct':
+            t = threading.Thread(target=_download_direct_thread, args=(
+                session_id, meta['url'], meta['filename'], session.get('save_dir')
+            ))
+        elif dtype == 'aria2c':
+            args = meta.get('args', [])
+            if not args:
+                session['status'] = 'error'
+                session['message'] = 'Cannot resume — original torrent file unavailable. Please re-upload.'
+                _save_sessions()
+                return jsonify({'error': session['message']}), 400
+            t = threading.Thread(target=_run_aria2c, args=(session_id, args))
+        elif dtype == 'video':
+            t = threading.Thread(target=_download_video_best_thread, args=(session_id, meta['url'], session.get('save_dir')))
+        else:
+            session['status'] = 'error'
+            session['message'] = 'Cannot resume this download type'
+            _save_sessions()
+            return jsonify({'error': session['message']}), 400
+        t.daemon = True
+        t.start()
+
+    _save_sessions()
+    return jsonify({'success': True})
+
+
+@app.route('/api/retry/<session_id>', methods=['POST'])
+def api_retry(session_id):
+    """Resume/restart a failed or interrupted download, continuing from partial progress where possible."""
+    session = download_sessions.get(session_id)
+    if not session:
+        return jsonify({'error': 'Session not found'}), 404
+    status = session.get('status')
+    if status == 'completed':
+        # Allow re-download only when the file has been moved/deleted
+        filepath = session.get('filepath', '')
+        if filepath and os.path.exists(filepath):
+            return jsonify({'error': 'File already exists — nothing to re-download.'}), 400
+    elif status not in ('error', 'interrupted', 'paused'):
+        return jsonify({'error': 'Can only retry failed or interrupted downloads'}), 400
+
+    meta = session.get('_meta', {})
+    dtype = meta.get('type') or session.get('type', '')
+    url   = meta.get('url')  or session.get('url', '')
+
+    if not dtype or not url:
+        return jsonify({'error': 'Not enough info to restart — please start a new download.'}), 400
+
+    session['status'] = 'downloading'
+    session['progress'] = 0
+    session['message'] = 'Resuming...'
+
+    # Pass the stored save_dir so threads reuse the same folder and pick up partial files
+    saved_dir = session.get('save_dir')
+
+    t = None
+    if dtype == 'youtube':
+        vfid = meta.get('video_format_id')
+        afid = meta.get('audio_format_id')
+        if vfid and afid:
+            t = threading.Thread(target=_download_thread, args=(
+                session_id, url, meta.get('download_type', 'video'),
+                vfid, afid,
+                meta.get('is_playlist', False), meta.get('skip_indices', []),
+                saved_dir
+            ))
+        else:
+            t = threading.Thread(target=_download_video_best_thread, args=(session_id, url, saved_dir))
+    elif dtype == 'direct':
+        filename = meta.get('filename') or session.get('name') or url.split('/')[-1] or 'file'
+        t = threading.Thread(target=_download_direct_thread, args=(session_id, url, filename, saved_dir))
+    elif dtype in ('torrent', 'aria2c'):
+        args = meta.get('args') or ([url] if url else [])
+        if not args or not args[0]:
+            return jsonify({'error': 'Torrent file unavailable — please re-upload the .torrent file.'}), 400
+        t = threading.Thread(target=_run_aria2c, args=(session_id, args))
+    elif dtype == 'video':
+        t = threading.Thread(target=_download_video_best_thread, args=(session_id, url, saved_dir))
+    else:
+        return jsonify({'error': f'Unknown download type: {dtype}'}), 400
+
+    t.daemon = True
+    t.start()
+    _save_sessions()
+    return jsonify({'success': True})
+
+
+@app.route('/api/remove/<session_id>', methods=['POST'])
+def api_remove(session_id):
+    """Remove a session from the list; optionally delete the downloaded file from disk."""
+    session = download_sessions.pop(session_id, None)
+    if not session:
+        return jsonify({'error': 'Session not found'}), 404
+
+    # Stop any active thread/process so it doesn't resurrect the removed session
+    evt = _pause_events.pop(session_id, None)
+    if evt:
+        evt.clear()
+    proc = _running_procs.pop(session_id, None)
+    if proc and proc.poll() is None:
+        try:
+            proc.terminate()
+        except Exception:
+            pass
+
+    delete_file = (request.json or {}).get('delete_file', False)
+    deleted = False
+    if delete_file:
+        filepath = (session.get('filepath') or '').strip()
+        if filepath and os.path.exists(filepath):
+            try:
+                if os.path.isfile(filepath):
+                    os.unlink(filepath)
+                    deleted = True
+                elif os.path.isdir(filepath):
+                    shutil.rmtree(filepath)
+                    deleted = True
+            except OSError as e:
+                _save_sessions()
+                return jsonify({'error': f'Could not delete file: {e}'}), 500
+
+    _save_sessions()
+    return jsonify({'success': True, 'deleted': deleted})
+
+
 @app.route('/api/upload-torrent', methods=['POST'])
 def api_upload_torrent():
     """Accept a .torrent file upload and start the download via aria2c."""
@@ -1003,6 +1315,7 @@ def api_upload_torrent():
             'url': f.filename,
             'filepath': '',
             'save_dir': '',
+            '_meta': {'type': 'aria2c', 'args': []},  # args filled by _run_aria2c_from_data
         }
         _save_sessions()
         thread = threading.Thread(
@@ -1017,18 +1330,22 @@ def api_upload_torrent():
 
 
 def _run_aria2c_from_data(session_id, torrent_data, name):
-    """Save .torrent bytes to a temp file then hand off to aria2c."""
-    import tempfile
-    tmp_path = None
+    """Save .torrent bytes to a persistent file, run aria2c, then clean up."""
+    perm_path = os.path.join(_get_app_data_dir(), f'torrent_{session_id}.torrent')
     try:
-        with tempfile.NamedTemporaryFile(suffix='.torrent', delete=False) as tmp:
-            tmp.write(torrent_data)
-            tmp_path = tmp.name
-        _run_aria2c(session_id, [tmp_path])
+        os.makedirs(os.path.dirname(perm_path), exist_ok=True)
+        with open(perm_path, 'wb') as f:
+            f.write(torrent_data)
+        # Update _meta so the resume endpoint can restart with this file
+        if session_id in download_sessions:
+            download_sessions[session_id].setdefault('_meta', {})['args'] = [perm_path]
+        _run_aria2c(session_id, [perm_path])
     finally:
-        if tmp_path and os.path.exists(tmp_path):
+        # Keep the file if paused (needed for resume); delete otherwise
+        status = download_sessions.get(session_id, {}).get('status', '')
+        if os.path.exists(perm_path) and status != 'paused':
             try:
-                os.unlink(tmp_path)
+                os.unlink(perm_path)
             except OSError:
                 pass
 
@@ -1065,7 +1382,7 @@ if __name__ == '__main__':
     print("Afriway Downloader Server")
     print("="*50)
     print(f"Server running at: http://localhost:{port}")
-    print("Downloads will be saved to:", get_downloads_folder())
+    print("Downloads will be saved to:", _get_afriway_base())
     print("Proudly African - Inspired by Ethiopia")
     print("="*50 + "\n")
 

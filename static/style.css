@@ -302,6 +302,8 @@ body {
   display: flex;
   flex-direction: column;
   gap: 24px;
+  min-width: 0;     /* prevents grid item from bursting past its 1fr column */
+  overflow: hidden; /* clips any child that still escapes */
 }
 
 .topbar {
@@ -904,7 +906,7 @@ body {
 /* ══════════════════════════════════════
    Tab panes
 ══════════════════════════════════════ */
-.tab-pane { display: none; flex-direction: column; gap: 24px; }
+.tab-pane { display: none; flex-direction: column; gap: 24px; min-width: 0; }
 .tab-pane.active { display: flex; }
 
 /* ══════════════════════════════════════
@@ -933,10 +935,24 @@ body {
   white-space: nowrap;
 }
 
-.location-input {
-  flex: 1;
+.partition-select {
+  flex-shrink: 0;
   font-size: 13px;
   padding: 10px 16px;
+  min-width: 140px;
+  cursor: pointer;
+}
+
+.afriway-path-preview {
+  flex: 1;
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  font-family: monospace;
+  opacity: 0.8;
 }
 
 .btn-apply {
@@ -993,7 +1009,7 @@ body {
 /* ══════════════════════════════════════
    Download queue
 ══════════════════════════════════════ */
-.download-queue { display: flex; flex-direction: column; gap: 12px; }
+.download-queue { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 
 .queue-empty {
   padding: 40px 24px;
@@ -1014,6 +1030,8 @@ body {
   border: 1px solid rgba(212, 175, 55, 0.10);
   border-radius: 20px;
   transition: border-color 0.25s;
+  min-width: 0;    /* flex child must be able to shrink */
+  overflow: hidden; /* hard stop — text cannot escape the card border */
 }
 
 .queue-item:hover { border-color: rgba(212, 175, 55, 0.20); }
@@ -1109,6 +1127,210 @@ body {
 .status-badge--error         { background: rgba(192, 57, 43, 0.15); color: #e74c3c; }
 .status-badge--queued        { background: rgba(255, 255, 255, 0.06); color: var(--text-muted); }
 .status-badge--interrupted   { background: rgba(212, 175, 55, 0.10); color: var(--text-muted); }
+.status-badge--paused        { background: rgba(90, 140, 210, 0.12); color: #74a9d8; }
+
+/* ══════════════════════════════════════
+   Queue item checkbox — custom dark-theme style
+══════════════════════════════════════ */
+.queue-item-check {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  border: 2px solid rgba(212, 175, 55, 0.35);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.04);
+  cursor: pointer;
+  position: relative;
+  transition: background 0.15s ease, border-color 0.15s ease;
+  vertical-align: middle;
+}
+.queue-item-check:hover:not(:checked) {
+  border-color: rgba(212, 175, 55, 0.65);
+  background: rgba(212, 175, 55, 0.07);
+}
+.queue-item-check:checked {
+  background: var(--gold-brand);
+  border-color: var(--gold-brand);
+}
+.queue-item-check:checked::after {
+  content: '';
+  position: absolute;
+  left: 4px;
+  top: 1px;
+  width: 6px;
+  height: 10px;
+  border: 2.5px solid #1a1209;
+  border-top: none;
+  border-left: none;
+  transform: rotate(45deg);
+}
+
+/* ══════════════════════════════════════
+   Pause / Resume action buttons (per item)
+══════════════════════════════════════ */
+.btn-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid;
+  transition: background 0.2s ease, border-color 0.2s ease;
+  margin-left: 4px;
+}
+.btn-action--pause {
+  background: rgba(212, 175, 55, 0.08);
+  border-color: rgba(212, 175, 55, 0.28);
+  color: var(--gold-brand);
+}
+.btn-action--pause:hover {
+  background: rgba(212, 175, 55, 0.20);
+  border-color: rgba(212, 175, 55, 0.55);
+}
+.btn-action--resume {
+  background: rgba(27, 138, 90, 0.08);
+  border-color: rgba(27, 138, 90, 0.28);
+  color: var(--green-brand-light);
+}
+.btn-action--resume:hover {
+  background: rgba(27, 138, 90, 0.20);
+  border-color: rgba(27, 138, 90, 0.55);
+}
+.btn-action--retry {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.18);
+  color: var(--text-muted);
+}
+.btn-action--retry:hover {
+  background: rgba(255, 255, 255, 0.10);
+  border-color: rgba(255, 255, 255, 0.35);
+  color: var(--text-primary);
+}
+.btn-action--copy {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.14);
+  color: var(--text-muted);
+}
+.btn-action--copy:hover {
+  background: rgba(212, 175, 55, 0.10);
+  border-color: rgba(212, 175, 55, 0.35);
+  color: var(--gold-brand);
+}
+.btn-action--remove {
+  background: rgba(200, 50, 50, 0.06);
+  border-color: rgba(200, 50, 50, 0.22);
+  color: rgba(210, 80, 80, 0.75);
+}
+.btn-action--remove:hover {
+  background: rgba(200, 50, 50, 0.18);
+  border-color: rgba(200, 50, 50, 0.50);
+  color: #e06060;
+}
+.btn-action--delete-file {
+  background: rgba(180, 40, 40, 0.08);
+  border-color: rgba(180, 40, 40, 0.28);
+  color: rgba(220, 70, 70, 0.85);
+}
+.btn-action--delete-file:hover {
+  background: rgba(180, 40, 40, 0.22);
+  border-color: rgba(180, 40, 40, 0.55);
+  color: #e05555;
+}
+
+.queue-item-remove-row {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+/* ══════════════════════════════════════
+   Bulk actions toolbar (above each queue)
+══════════════════════════════════════ */
+.bulk-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 0 8px;
+}
+.bulk-check-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text-muted);
+  cursor: pointer;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.bulk-check-label input[type="checkbox"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border: 2px solid rgba(212, 175, 55, 0.35);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.04);
+  cursor: pointer;
+  position: relative;
+  flex-shrink: 0;
+  transition: background 0.15s ease, border-color 0.15s ease;
+  vertical-align: middle;
+}
+.bulk-check-label input[type="checkbox"]:hover:not(:checked) {
+  border-color: rgba(212, 175, 55, 0.65);
+  background: rgba(212, 175, 55, 0.07);
+}
+.bulk-check-label input[type="checkbox"]:checked {
+  background: var(--gold-brand);
+  border-color: var(--gold-brand);
+}
+.bulk-check-label input[type="checkbox"]:checked::after {
+  content: '';
+  position: absolute;
+  left: 4px;
+  top: 1px;
+  width: 6px;
+  height: 10px;
+  border: 2.5px solid #1a1209;
+  border-top: none;
+  border-left: none;
+  transform: rotate(45deg);
+}
+.btn-bulk {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 13px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid;
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+.btn-bulk--pause {
+  background: rgba(212, 175, 55, 0.07);
+  border-color: rgba(212, 175, 55, 0.25);
+  color: var(--gold-brand);
+}
+.btn-bulk--pause:hover {
+  background: rgba(212, 175, 55, 0.18);
+  border-color: rgba(212, 175, 55, 0.50);
+}
+.btn-bulk--resume {
+  background: rgba(27, 138, 90, 0.07);
+  border-color: rgba(27, 138, 90, 0.25);
+  color: var(--green-brand-light);
+}
+.btn-bulk--resume:hover {
+  background: rgba(27, 138, 90, 0.18);
+  border-color: rgba(27, 138, 90, 0.50);
+}
 
 /* ══════════════════════════════════════
    Show in folder button (queue item action)
@@ -1142,79 +1364,32 @@ body {
 }
 
 /* ══════════════════════════════════════
-   Missing files modal
+   SweetAlert2 — dark theme overrides
 ══════════════════════════════════════ */
-.modal-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.65);
-  -webkit-backdrop-filter: blur(4px);
-  backdrop-filter: blur(4px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
+.swal-afriway {
+  border: 1px solid rgba(212, 175, 55, 0.22) !important;
+  border-radius: 20px !important;
+  font-family: 'Inter', sans-serif !important;
 }
-.modal-overlay.hidden { display: none !important; }
-
-.modal-card {
-  background: var(--bg-soft);
-  border: 1px solid var(--border-strong);
-  border-radius: 24px;
-  padding: 0;
-  width: min(480px, 92vw);
-  box-shadow: var(--shadow);
-  overflow: hidden;
+.swal2-title {
+  color: #f5ebe0 !important;
+  font-size: 18px !important;
+  font-weight: 700 !important;
 }
-
-.modal-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 20px 24px 16px;
-  border-bottom: 1px solid rgba(212, 175, 55, 0.10);
+.swal2-html-container {
+  color: #d4c4b0 !important;
 }
-.modal-header h3 {
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--text-primary);
+.swal2-icon {
+  border-color: rgba(212, 175, 55, 0.30) !important;
 }
-
-.modal-close {
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  border: 1px solid rgba(212, 175, 55, 0.15);
-  background: rgba(255, 255, 255, 0.05);
-  color: var(--text-secondary);
-  font-size: 14px;
-  cursor: pointer;
-  display: grid;
-  place-items: center;
-  transition: background 0.2s ease;
+.swal2-timer-progress-bar {
+  background: rgba(212, 175, 55, 0.60) !important;
 }
-.modal-close:hover { background: rgba(212, 175, 55, 0.12); }
-
-.modal-body {
-  padding: 20px 24px 24px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  color: var(--text-secondary);
-  font-size: 14px;
-  line-height: 1.6;
+.swal2-cancel {
+  color: #d4c4b0 !important;
 }
-
-.missing-path {
-  display: block;
-  padding: 10px 14px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(212, 175, 55, 0.14);
-  border-radius: 10px;
-  font-family: 'Consolas', 'Monaco', monospace;
-  font-size: 12px;
-  color: var(--gold-brand-strong);
-  word-break: break-all;
+.swal2-cancel:hover {
+  background: rgba(255, 255, 255, 0.18) !important;
 }
 
 /* ══════════════════════════════════════
@@ -1225,6 +1400,81 @@ body {
   color: var(--text-muted);
   letter-spacing: 0.03em;
   font-style: italic;
+}
+
+.social-links {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+
+.social-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  transition: transform 0.18s ease, background 0.18s ease, border-color 0.18s ease;
+  text-decoration: none;
+}
+.social-link svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+.social-link:hover {
+  transform: translateY(-2px);
+}
+
+/* LinkedIn — gold (brand) */
+.social-link--linkedin {
+  background: rgba(212, 175, 55, 0.10);
+  border-color: rgba(212, 175, 55, 0.28);
+  color: var(--gold-brand);
+}
+.social-link--linkedin:hover {
+  background: rgba(212, 175, 55, 0.22);
+  border-color: rgba(212, 175, 55, 0.55);
+  color: #7fc3e8;
+}
+
+/* Facebook — gold (brand) */
+.social-link--facebook {
+  background: rgba(212, 175, 55, 0.10);
+  border-color: rgba(212, 175, 55, 0.28);
+  color: var(--gold-brand);
+}
+.social-link--facebook:hover {
+  background: rgba(212, 175, 55, 0.22);
+  border-color: rgba(212, 175, 55, 0.55);
+  color: #85bcf7;
+}
+
+/* Telegram — gold (brand) */
+.social-link--telegram {
+  background: rgba(212, 175, 55, 0.10);
+  border-color: rgba(212, 175, 55, 0.28);
+  color: var(--gold-brand);
+}
+.social-link--telegram:hover {
+  background: rgba(212, 175, 55, 0.22);
+  border-color: rgba(212, 175, 55, 0.55);
+  color: #88d1f2;
+}
+
+/* Email — gold (brand) */
+.social-link--email {
+  background: rgba(212, 175, 55, 0.10);
+  border-color: rgba(212, 175, 55, 0.28);
+  color: var(--gold-brand);
+}
+.social-link--email:hover {
+  background: rgba(212, 175, 55, 0.22);
+  border-color: rgba(212, 175, 55, 0.55);
+  color: #e8c94a;
 }
 
 /* ══════════════════════════════════════
@@ -1339,7 +1589,8 @@ body {
 
   /* Location bar wraps to two rows */
   .location-bar-inner { flex-wrap: wrap; padding: 12px 16px; gap: 10px; }
-  .location-input { min-width: 0; }
+  .partition-select { min-width: 120px; }
+  .afriway-path-preview { width: 100%; order: 10; }
 
   /* Torrent upload zone stacks */
   .file-upload-zone { flex-direction: column; align-items: flex-start; gap: 10px; }
@@ -1353,10 +1604,6 @@ body {
   .topbar { padding: 16px 20px; flex-direction: column; align-items: flex-start; gap: 10px; }
   .topbar h2 { font-size: 18px; }
 
-  /* Modal fits small screens */
-  .modal-card { border-radius: 20px; }
-  .modal-header { padding: 16px 20px 14px; }
-  .modal-body { padding: 16px 20px 20px; }
 }
 
 @media (max-width: 480px) {

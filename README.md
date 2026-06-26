@@ -2,6 +2,8 @@
 
 A multi-type download manager built with Python and Flask, inspired by the spirit of Africa. Download YouTube videos and playlists, torrent files, direct files, and videos from 1 000+ sites — all from one clean, dark-themed web interface.
 
+![Afriway Downloader](static/AfriwayLogo.webp)
+
 ---
 
 ## Features
@@ -11,17 +13,50 @@ A multi-type download manager built with Python and Flask, inspired by the spiri
 | **YouTube** | Videos & playlists — pick exact video/audio quality, download as MP4 or MP3 |
 | **Torrent** | Magnet links, `.torrent` URLs, or upload a `.torrent` file directly |
 | **Others** | Direct files (`.exe`, `.zip`, images…) and videos from 1 000+ sites via yt-dlp |
-| **All Downloads** | Unified queue with live search, type/status filters, real-time progress |
+| **All Downloads** | Unified queue with live search, type/status filters, and real-time progress |
 
-**More highlights:**
+### Download Queue
 
-- Real-time progress bars and status polling (every 2 seconds)
-- Persistent download history — survives page refresh without restarting downloads
-- **"Show in folder"** button opens the file location in Explorer after completion
-- Missing file detection — if a completed file was moved, shows a clear warning
-- Custom download location via native OS folder picker
-- Fully responsive — works on desktop and mobile browsers
-- African-inspired dark UI with gold, green, and blue brand colours
+- **Pause / Resume** — per-item and bulk (Select All → Pause/Resume All)
+- **Retry** — resumes from partial `.part` files; direct downloads use HTTP Range requests
+- **Re-download** — appears when a completed file has been moved or deleted
+- **Remove from list** — removes the session without touching the file
+- **Delete file** — removes from list and permanently deletes the file from disk
+- **Copy link** — copies the original source URL to the clipboard
+- **Show in folder** — opens Explorer/Finder at the file's location after completion
+
+### Smart Tab Routing
+
+Paste any URL into any tab and the app detects its type and moves it to the right tab automatically — no error, no friction.
+
+### Afriway Folder Organisation
+
+Files are automatically sorted by type into a shared `Afriway` folder, similar to how Xender organises downloads:
+
+```
+Afriway/
+├── Videos/     YouTube videos, audio, and video-site downloads
+├── Images/     Direct image downloads (.jpg, .png, .gif, .webp…)
+├── App/        Executables and packages (.apk, .exe, .msi, .dmg…)
+├── Folder/     YouTube playlists (one sub-folder per playlist)
+└── Other/      Everything else (.zip, .pdf, .torrent content…)
+```
+
+Choose which drive to save to from the **Drive** dropdown:
+- **System drive (C:)** → `C:\Users\<You>\Downloads\Afriway`
+- **Any other drive** → `X:\Afriway`
+
+### Notifications
+
+All alerts, confirmations, and toasts use **SweetAlert2** styled to match the dark gold theme — no browser-native popups.
+
+### Other Highlights
+
+- **Persistent history** — download sessions survive page refresh and server restart
+- **Responsive** — works on desktop and mobile browsers
+- **African-inspired dark UI** — gold, green, and deep-black brand colours
+- Real-time progress bars with speed display
+- Missing file detection — completed files that were moved show a clear warning + Re-download button
 
 ---
 
@@ -39,11 +74,7 @@ Install all Python dependencies:
 pip install -r requirements.txt
 ```
 
-### System tools
-
-These are **not** Python packages — install them once on your machine:
-
-#### FFmpeg (required for YouTube video+audio merging)
+### FFmpeg (required for YouTube video+audio merging)
 
 | OS | Command |
 |---|---|
@@ -53,14 +84,15 @@ These are **not** Python packages — install them once on your machine:
 
 > Without FFmpeg, YouTube downloads fall back to a single-stream format (no merging).
 
-#### aria2c (required for torrent downloads)
+### aria2c (required for Torrent downloads)
 
 | OS | Command |
 |---|---|
-| Windows | `winget install aria2` or download `aria2c.exe` from [GitHub Releases](https://github.com/aria2/aria2/releases) and place it next to `app.py` |
+| Windows | `winget install aria2` or download `aria2c.exe` from [GitHub Releases](https://github.com/aria2/aria2/releases) and place it anywhere inside the project folder |
 | macOS | `brew install aria2` |
 | Linux | `sudo apt install aria2` |
 
+> The app searches the project folder recursively, so placing the aria2 binary anywhere under the project directory is enough.
 > Torrent downloads are disabled if aria2c is not found. All other tabs work without it.
 
 ---
@@ -95,20 +127,22 @@ Open **http://localhost:5000** in your browser.
 
 ### YouTube Tab
 
-1. Paste a YouTube video or playlist URL in the input field.
+1. Paste a YouTube video or playlist URL.
 2. Click **Fetch URL** — loads the title and available formats.
 3. Choose **Video + Audio** (MP4) or **Audio Only** (MP3).
 4. Select your preferred video and audio quality.
-5. For playlists, check/uncheck individual videos to skip them.
-6. Click **Download Now** — progress appears in the queue below.
+5. For playlists, uncheck any videos you want to skip.
+6. Click **Download Now** — progress appears in the queue.
+
+> Pasting a non-YouTube URL here will automatically move it to the right tab.
 
 ### Torrent Tab
 
-1. **Paste a magnet link or `.torrent` URL** in the input, then click **Start Download**.
+1. **Paste a magnet link or `.torrent` URL**, then click **Start Download**.
    — OR —
 2. **Upload a `.torrent` file** using the file picker.
 
-> Requires aria2c (see Requirements above).
+> Requires aria2c. Pasting a non-torrent URL redirects to the correct tab automatically.
 
 ### Others Tab
 
@@ -116,25 +150,20 @@ Open **http://localhost:5000** in your browser.
 2. Click **Analyze URL** — detects file type and shows name/size.
 3. Click **Download** to start.
 
-### Changing the Download Location
+> Pasting a YouTube or torrent URL here will automatically redirect to the right tab.
 
-The **Save to:** bar at the top shows the current folder.
+### Changing the Download Drive
 
-- Type a path and click **Apply**.
-- Or click **Browse** to pick a folder with the native OS dialog.
-
-Files are organised automatically:
-- YouTube → `<download folder>/YouTube Downloads/`
-- Everything else → `<download folder>/`
+The **Drive** selector at the top of the page lets you pick which drive the `Afriway` folder lives on. The full resolved path is shown as a preview. Click **Apply** to confirm.
 
 ### All Downloads Tab
 
-Shows every download (past and active) in one place.
+Shows every download (past and present) in one place.
 
 - **Search bar** — filter by name or URL.
 - **Type / Status dropdowns** — narrow the list.
-- **"Show in folder"** button — opens the file location in Explorer after completion.
-- **"File moved?"** button — appears when a completed file is no longer at its saved path.
+- **Bulk toolbar** — Select All → Pause All / Resume All.
+- **Per-item actions** — Pause, Resume, Retry, Copy link, Show in folder, Remove, Delete file.
 
 ---
 
@@ -142,17 +171,30 @@ Shows every download (past and active) in one place.
 
 ```
 Afriway-Downloader/
-├── app.py              # Flask backend — routes, download threads, session management
-├── requirements.txt    # Python dependencies
-├── downloads.json      # Auto-generated: persisted download history (git-ignored)
+├── app.py                  # Flask backend — routes, download threads, session management
+├── requirements.txt        # Python dependencies
+├── downloads.json          # Auto-generated: persisted download history (git-ignored)
 ├── static/
-│   ├── script.js       # Frontend — tabs, queue polling, all download flows
-│   ├── style.css       # Responsive dark theme with brand colours
-│   ├── AfriwayLogo.webp
-│   └── qr-coffee.webp  # Auto-generated at startup
+│   ├── script.js           # Frontend — tabs, queue polling, all download flows
+│   ├── style.css           # Responsive dark theme with brand colours
+│   ├── AfriwayLogo.webp    # Sidebar logo
+│   └── AfriwayLogo.ico     # Browser tab favicon
 └── templates/
-    └── index.html      # Single-page app shell
+    └── index.html          # Single-page app shell
 ```
+
+---
+
+## Troubleshooting
+
+| Problem | Fix |
+|---|---|
+| "aria2c not found" on Torrent tab | Download `aria2c.exe` from [GitHub Releases](https://github.com/aria2/aria2/releases) and place it anywhere inside the project folder, then restart the app. |
+| YouTube video has no audio or low quality | Install FFmpeg — without it yt-dlp cannot merge separate video and audio streams. |
+| Port 5000 already in use | `set FLASK_PORT=5001 && python app.py` (Windows) or `FLASK_PORT=5001 python app.py` (macOS/Linux). |
+| "Copy link" button doesn't work | The Clipboard API requires a secure context. Access the app via `http://localhost` (not a raw IP). |
+| File shows "File moved?" after completion | The file was moved or deleted after download. Click **↩ Re-download** to fetch it again. |
+| Paused download won't resume after restart | The app restarts the download from the last saved position using the original URL and folder. |
 
 ---
 
@@ -172,20 +214,14 @@ User data (`downloads.json`, settings) will be stored in `%APPDATA%\AfriWayDownl
 
 ---
 
-## Troubleshooting
-
-| Problem | Fix |
-|---|---|
-| "aria2c not found" on Torrent tab | Install aria2c (see Requirements) and restart. Or place `aria2c.exe` in the same folder as `app.py`. |
-| YouTube video has no audio or low quality | Install FFmpeg — without it yt-dlp cannot merge separate video and audio streams. |
-| "Browse" folder picker doesn't open | Ensure tkinter is available: run `python -m tkinter`. On Linux: `sudo apt install python3-tk`. |
-| Port 5000 already in use | `set FLASK_PORT=5001 && python app.py` (Windows) or `FLASK_PORT=5001 python app.py` (macOS/Linux). |
-
----
-
 ## Credits
 
 Developed by **Yosef Mulatu**
+
+- [LinkedIn](https://www.linkedin.com/in/yosefmulatu/)
+- [Facebook](https://web.facebook.com/yosefmulatufb)
+- [Telegram](https://t.me/jocyJ)
+- [Email](mailto:josephmulatu1@gmail.com)
 
 If this app saves you time, [buy me a coffee](https://buymeacoffee.com/yosefmulatu) ☕
 
